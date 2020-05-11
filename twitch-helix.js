@@ -39,7 +39,7 @@ function getStreams(token) {
   return rp.get("https://api.twitch.tv/helix/streams", {
     headers: {
       "Client-ID": config["twitch-client-id"],
-      "Authorization": "OAuth " + token,
+      "Authorization": "Bearer " + token,
     },
     qs: {
       "game_id": config["target-game-id"],
@@ -54,7 +54,7 @@ function getUsers (ids) {
   return rp.get("https://api.twitch.tv/helix/users", {
     headers: {
       "Client-ID": config["twitch-client-id"],
-      "Authorization": "OAuth " + config["twitch-access-token"],
+      "Authorization": "Bearer " + config["twitch-access-token"],
     },
     qs: {
       "id": ids,
