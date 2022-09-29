@@ -93,9 +93,9 @@ async function streamLoop() {
               return true;
             return false;
           });
-        } else { //title mode
+        } 
+      } else { //title mode
           speedrun = titleWordlist.some(val => stream["title"].toLowerCase().includes(val.toLowerCase()));
-        }
       }
 
       if (speedrun) {
