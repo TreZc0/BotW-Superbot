@@ -164,7 +164,7 @@ async function roleManagement(message) {
   if (message.member != undefined) {
 
     //Moderation Commands
-    if (message.member.permissions.has("MANAGE_MESSAGES")) {
+    if (message.member.permissions.has("ManageMessages")) {
       if (message.content.toLowerCase() === "!clear") {
         _clearChat(message.channel.id);
         return;
@@ -220,7 +220,7 @@ async function roleManagement(message) {
 
 async function streamNotificationManagement(message) {
   if (message.member != undefined) {
-    if (message.member.permissions.has("MANAGE_MESSAGES")) {
+    if (message.member.permissions.has("ManageMessages")) {
       if (message.content.toLowerCase() === "!clear") {
         _clearChat(message.channel.id,true);
         return;
@@ -429,7 +429,7 @@ bot.on('messageCreate', message => {
       .catch(error => console.log("Couldn't ban bot because of the following error: \n" + error));
   }
 
-  if (message.member && !message.member.permissions.has("MENTION_EVERYONE") && (message.content.includes("@everyone") || message.content.includes("@here"))) {
+  if (message.member && !message.member.permissions.has("MentionEveryone") && (message.content.includes("@everyone") || message.content.includes("@here"))) {
     if (botSpamCheck.includes(message.member.user.tag)) {
 
       message.delete();
@@ -603,6 +603,7 @@ function checkForOutdatedStreams() {
   }
 }
 
+//Sys
 function commitState() {
   jsonfile.writeFile(stateFile, state, { spaces: 2 }, function (err) {
     if (err) console.error(err)
