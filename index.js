@@ -1,324 +1,646 @@
+//Modules
 const Discord = require('discord.js');
-const discordClient = new Discord.Client();
-const twitch = require('./twitch-helix');
-const editJsonFile = require("edit-json-file");
-const json = editJsonFile("./config.json");
-const config = json.get();
+const jsonfile = require('jsonfile');
+const fs = require('fs');
 
-class DiscordChannel {
-  constructor (id) {
-    this.id = id;
+//Global
+const configFile = './config.json';
+const config = jsonfile.readFileSync(configFile);
+
+//Twitch Init
+const twitch = require('./twitch-helix');
+
+const discordToken = config["discord-token"];
+const activeGuild = config["discord-server-id"];
+const roleHandlingChannel = config["discord-role-channel-id"];
+const streamNotificationChannel = config["discord-notifications-channel-id"];
+const glitchesChannel = config["discord-glitches-channel-id"];
+const stickyGlitchesChannel = config["discord-stickied-glitches-channel-id"];
+const loggingChannel = config["discord-logging-channel-id"];
+const bannedFileExtensions = config["discord-banned-file-ext"];
+
+//Role Init
+const numToDiscordEmojis = {
+  0: '0⃣',
+  1: '1⃣',
+  2: '2⃣',
+  3: '3⃣',
+  4: '4⃣',
+  5: '5⃣',
+  6: '6⃣',
+  7: '7⃣',
+  8: '8⃣',
+  9: '9⃣',
+  10: '🔟'
+};
+const roles = Object.assign({}, config["discord-available-roles"]);
+
+
+//State Init
+const stateFile = './state.json';
+let state = {
+  "activeReactionMessage": "",
+  "activeStreams": {}
+};
+if (!fs.existsSync(stateFile)) {
+  jsonfile.writeFileSync(stateFile, state);
+} else {
+  state = jsonfile.readFileSync(stateFile);
+}
+  
+//Discord Init
+let botIsReady = false;
+const botIntents = [
+  Discord.GatewayIntentBits.Guilds,
+  Discord.GatewayIntentBits.GuildMembers,
+  Discord.GatewayIntentBits.GuildBans,
+  Discord.GatewayIntentBits.GuildEmojisAndStickers,
+  Discord.GatewayIntentBits.GuildPresences,
+  Discord.GatewayIntentBits.GuildMessages,
+  Discord.GatewayIntentBits.GuildMessageReactions,
+  Discord.GatewayIntentBits.DirectMessages,
+  Discord.GatewayIntentBits.MessageContent
+];
+
+const botPartials = ['MESSAGE', 'CHANNEL', 'REACTION'];
+
+const bot = new Discord.Client({ intents: botIntents, partials: botPartials, restTimeOffset: 200 });
+let botSpamCheck = [];
+
+bot.on('ready', () => {
+  botIsReady = true;
+  console.log('Logged in as %s - %s\n', bot.user.username, bot.user.id);
+
+  if (state.activeReactionMessage.length > 0) {
+    bot.guilds.cache.get(activeGuild).channels.cache.get(roleHandlingChannel).messages.fetch(state.activeReactionMessage, true, true);
   }
-  send (msg) {
-    return new Promise ((resolve, reject) => {
-      if (discordClient.ws.connection !== null && discordClient.status === 0) {
-        let channel = discordClient.channels.get(this.id);
-        if (typeof channel !== 'undefined') {
-          resolve(channel.send(msg));
-        } else {
-          reject('Failed to send discord message (Discord connection open, but channel not found.');
-        }
-      } else {
-        reject('Failed to send discord message (Discord connection not open)');
+});
+
+//Role Handling via Reactions
+bot.on('messageReactionAdd', (reaction, user) => {
+  if (state.activeReactionMessage.length == 0 || state.activeReactionMessage != reaction.message.id)
+    return;
+
+  let memberObj = bot.guilds.cache.get(reaction.message.guild.id).members.cache.get(user.id);
+  if (memberObj) {
+
+    let roleIndex = Object.keys(numToDiscordEmojis).find(key => numToDiscordEmojis[key] === reaction.emoji.name);
+
+    let roleToAdd = bot.guilds.cache.get(reaction.message.guild.id).roles.cache.find(role => role.name === roles[roleIndex]);
+    if (roleToAdd) {
+
+      if (!memberObj.roles.cache.has(roleToAdd)) {
+        memberObj.roles.add(roleToAdd).then(newMemberObj => newMemberObj.fetch(true));
       }
-    });
+    }
+  }
+
+})
+
+bot.on('messageReactionRemove', (reaction, user) => {
+  if (state.activeReactionMessage.length == 0 || state.activeReactionMessage != reaction.message.id)
+    return;
+
+  let memberObj = bot.guilds.cache.get(reaction.message.guild.id).members.cache.get(user.id);
+
+  if (memberObj) {
+
+    let roleIndex = Object.keys(numToDiscordEmojis).find(key => numToDiscordEmojis[key] === reaction.emoji.name);
+
+    let roleToRemove = bot.guilds.cache.get(reaction.message.guild.id).roles.cache.find(role => role.name === roles[roleIndex]);
+    if (roleToRemove) {
+
+      memberObj.fetch(true).then(updatedMemberObj => {
+        if (updatedMemberObj.roles.cache.find(role => role.name == roleToRemove.name)) {
+          updatedMemberObj.roles.remove(roleToRemove).then(updatedMemberObj => updatedMemberObj.fetch(true));
+        }
+      });
+    }
+  }
+})
+
+//Glitche Sticky Command
+function stickyGlitchHandling(message) {
+  if (message.content.toLowerCase().startsWith("!sticky")) {
+    let trimmedMessage = message.content.trim();
+    if (trimmedMessage.length < 10) {
+      message.reply("Correct usage is: !sticky <link> <title> !");
+      return;
+    }
+
+    let args = trimmedMessage.split(' ');
+    if (args.length < 3) {
+      message.reply("Not enough arguments. Correct usage is: !sticky <link> <title> !");
+      return;
+    }
+
+    let link = args[1];
+
+    if (!link.includes("http") && !link.includes("www")) {
+      message.reply("Bad link. Correct usage is: !sticky <link> <title> !");
+      return;
+    }
+
+    //https://discordapp.com/channels/83003360625557504/354966434243280896/493870196918845441 //guild/channel/message
+    let context = "https://discordapp.com/channels/" + config['discord-server-id'] + "/" + glitchesChannel + "/" + message.id;
+
+    let title = args[2];
+
+    if (args.length > 3) {
+      for (var n = 3; n < args.length; n++) {
+        title += " " + args[n];
+      }
+    }
+
+    bot.guilds.cache.get(activeGuild).channels.cache.get(stickyGlitchesChannel).send("**" + title + "**" + "\n" + link + "\n\n" + "*Context:* " + context);
+
+    message.reply("**Glitch was stickied!**");
   }
 }
-const responseDiscordChannel = new DiscordChannel(config['discord-response-channel-id']);
-const notifyDiscordChannel = new DiscordChannel(config['discord-notifications-channel-id']);
-const colorDiscordChannel = new DiscordChannel(config['discord-colors-channel-id']);
 
-setTimeout(() => {
-  console.log("Logging in to discord...");
-  discordClient.login(config["discord-token"]).then(() => {
-    console.log("Discord login success");
-  }).catch((e) => {
-    console.log("Discord login failure");
-    console.log(e);
-  });
-}, 5000);
+
+//Role Management
+async function roleManagement(message) {
+  if (message.member != undefined) {
+
+    //Moderation Commands
+    if (message.member.permissions.has("ManageMessages")) {
+      if (message.content.toLowerCase() === "!clear") {
+        _clearChat(message.channel.id);
+        return;
+      } else if (message.content.toLowerCase().startsWith("!info")) {
+
+        var postDate = JSON.parse(JSON.stringify(new Date()));
+        let embed = {
+          "title": "**Role Bot Commands**",
+          "description": "This bot can be used to assign different roles in this discord server by reacting to this message.\n**Thank you for being a part of the community!**",
+          "color": 1619777,
+          "timestamp": postDate,
+          "footer": {
+            "text": "Discord RoleBot by TreZc0_"
+          },
+          "author": {
+            "name": config["bot-user-name"],
+            "icon_url": config["bot-avatar-url"]
+          },
+          "fields": []
+        };
+
+        Object.keys(roles).forEach(roleIndex => {
+          let fieldObject = {};
+
+          fieldObject.name = roles[roleIndex];
+          fieldObject.value = numToDiscordEmojis[roleIndex];
+          embed.fields.push(fieldObject);
+        });
+
+        let reactions = [];
+
+        message.channel.send({ embeds: [embed]
+          })
+          .then(embedMessage => {
+            message.delete().catch(console.error);
+            embedMessage.pin();
+
+            for (let i = 0; i < Object.keys(roles).length; i++) {
+              let emoji = numToDiscordEmojis[i] //0-x number reaction emoji
+              //console.log(emoji)
+              reactions.push(embedMessage.react(emoji));
+            }
+            Promise.all(reactions);
+
+
+            state.activeReactionMessage = embedMessage.id;
+            commitState();
+          });
+      }
+    }
+  }
+};
+
+async function streamNotificationManagement(message) {
+  if (message.member != undefined) {
+    if (message.member.permissions.has("ManageMessages")) {
+      if (message.content.toLowerCase() === "!clear") {
+        _clearChat(message.channel.id,true);
+        return;
+      }
+    }
+  }
+}
+
+//Automatic Stream Announcement
 twitch.on('messageStreamStarted', (stream) => {
-  //let notificationMessage = stream.url +' just went live on Twitch playing ' + stream.game + ': ' + stream.title;
-  //console.log(notificationMessage);
-  let channel = discordClient.channels.get(config['discord-notifications-channel-id']); 
+  //console.log(stream.url +' just went live on Twitch playing ' + stream.game + ': ' + stream.title);
+  if (stream.id in state.activeStreams)
+    return;
+
+
+  let channel = bot.guilds.cache.get(activeGuild).channels.cache.get(streamNotificationChannel);
+
+  if (channel) {
+    var postDate = JSON.parse(JSON.stringify(new Date()));
+    let title = escapeDiscordSpecials(stream.name) + " just went live: " + escapeDiscordSpecials(stream.url);
+    title = title.replace("_", "\\_");
+    const embed = {
+      "title": escapeDiscordSpecials(title),
+      "description": escapeDiscordSpecials(stream.title),
+      "url": stream.url,
+      "color": 1369976,
+      "timestamp": postDate,
+      "footer": {
+        "icon_url": config["bot-avatar-url"],
+        "text": "Playing " + stream.game
+      },
+      "thumbnail": {
+        "url": stream.user_profile_image
+      },
+      "author": {
+        "name": escapeDiscordSpecials(stream.name) + " is now live on Twitch!",
+        "url": stream.url,
+        "icon_url": config["bot-avatar-url"]
+      }
+    };
+
+    channel.send({embeds: [embed]})
+    .catch((e) => {
+      console.error(e);
+    })
+    .then(sentMessage => {
+      let stateElem =  { 
+        "stream_url": stream.url,
+        "stream_title": stream.title,
+        "user": stream.name,
+        "messageID": sentMessage.id
+      };
+      state.activeStreams[stream.id] = stateElem;
+
+      commitState();
+    });
+  
+  }
+});
+
+//Automatic Stream Cleanup
+twitch.on('messageStreamDeleted', (stream) => {
+  //console.log (stream.url + " went offline");
+
+  if (!(stream.id in state.activeStreams))
+    return;
+
+  delete state.activeStreams[stream.id];
+  commitState();
+
+  let channel = bot.guilds.cache.get(activeGuild).channels.cache.get(streamNotificationChannel);
+  /*channel.messages.fetch({ limit: 80 })
+     .then(messages => {
+       messages.forEach(message => */
+  channel.messages.fetch({
+      limit: 80
+    }, true, true)
+    .then(messages => {
+      messages.each(msgObj => {
+        if (!msgObj)
+          return;
+        if ((msgObj.embeds) && (msgObj.embeds.length > 0)) {
+          if (msgObj.embeds[0].url == stream.url) {
+            msgObj.delete();
+          }
+        }
+      })
+    })
+    .catch((e) => {
+      console.error(e);
+    });
+});
+
+//Discord Moderation
+function bannedAttachmentCheck(message) {
+
+  const author = message.author;
+  const attachmentCollection = message.attachments
+  let bannedAttachmentTypeFound = false;
+
+  attachmentCollection.each(att => {
+    bannedFileExtensions.forEach(ext => {
+      if (att.name.toLowerCase().endsWith(ext))
+        bannedAttachmentTypeFound = true;
+    });
+  });
+
+  if (bannedAttachmentTypeFound) {
+    let actionObj = {
+      user: author.username,
+      channel: {
+        name: message.channel.name,
+        id: message.channel.id
+      },
+      offense: "Banned File Extension",
+      action: "Message Deleted & User warned",
+      messageObj: {
+        id: message.id,
+        content: message.content,
+        att: attachmentCollection.map(val => val.name).join(", ")
+      }
+    }
+    message.delete()
+      .catch(ex => {
+        console.error(`Cannot delete message with banned ext from ${author.username} in ${message.channel.name}: ${ex}`);
+      });
+
+    let warningMsg = `Hey there, ${author.username}! \n You just sent a message containing a forbidden file in our discord. The message has been deleted automatically.\
+    \nPlease refrain from sending a file of the following types in the future: ${bannedFileExtensions.join(", ")}\
+    \nOur 'welcome' channel contains our server rules - please make sure to read them again and follow them to ensure every community member can have a good time.\
+    \n\nBest\n**Your moderation team**`
+
+    message.author.send(warningMsg)
+      .catch(ex => {
+        console.error(`Cannot send warning DM to user ${author.username} for sending banned file attachment: ${ex}`);
+      });
+
+
+    _logModerationAction(actionObj);
+    return true;
+
+  }
+  return false;
+}
+
+//Message Handler
+bot.on('messageCreate', message => {
+
+  let forbiddenMessageDeleted = false;
+  if (bannedFileExtensions.length > 0 && message.attachments.size > 0) {
+    forbiddenMessageDeleted = bannedAttachmentCheck(message);
+  }
+
+  if (forbiddenMessageDeleted)
+    return;
+
+  if ((message.content.toLowerCase().includes("nitro for free") || message.content.toLowerCase().includes("free discord nitro") || message.content.toLowerCase().includes("disorde.gift")) && message.member.roles.cache.size < 2) {
+    message.member.ban({
+        days: 7,
+        reason: "Malware Bot, auto banned by bot!"
+      })
+      .then(() => {
+        console.log("Malware Spam Bot banned! Username: " + message.member.user.tag)
+        let actionObj = {
+          user: message.author.username,
+          channel: {
+            name: message.channel.name,
+            id: message.channel.id
+          },
+          offense: "Discord Phishing Attempt with suspicious link",
+          action: "Message Deleted & User Banned",
+          messageObj: {
+            id: message.id,
+            content: message.content
+          }
+        }
+
+        _logModerationAction(actionObj);
+      })
+      .catch(error => console.log("Couldn't ban bot because of the following error: \n" + error));
+  }
+
+  if (message.member.roles.cache.size < 2 && (new RegExp('dis(?!cord)[0-9a-zA-Z]{1,}\.gift\/.', 'g').test(message.content.toLowerCase()) || new RegExp('dis(?!cord)[0-9a-zA-Z]{1,}app\.com\/', 'g').test(message.content.toLowerCase()))) {
+    message.member.ban({
+        days: 7,
+        reason: "Malware Bot, auto banned by bot!"
+      })
+      .then(() => {
+        console.log("Malware Spam Bot banned! Username: " + message.member.user.tag)
+        let actionObj = {
+          user: message.author.username,
+          channel: {
+            name: message.channel.name,
+            id: message.channel.id
+          },
+          offense: "Discord Phishing Attempt with suspicious link",
+          action: "Message Deleted & User Banned",
+          messageObj: {
+            id: message.id,
+            content: message.content
+          }
+        }
+
+        _logModerationAction(actionObj);
+      })
+      .catch(error => console.log("Couldn't ban bot because of the following error: \n" + error));
+  }
+
+  if (message.member && !message.member.permissions.has("MentionEveryone") && (message.content.includes("@everyone") || message.content.includes("@here"))) {
+    if (botSpamCheck.includes(message.member.user.tag)) {
+
+      message.delete();
+      message.member.ban({
+          days: 7,
+          reason: "Spam Bot with mass pings, auto banned by bot!"
+        })
+        .then(console.log("Spam Bot wit mass pings banned! Username: " + message.member.user.tag))
+        .catch(error => console.info("Couldn't ban bot because of the following error: \n" + error));
+      botSpamCheck.splice(botSpamCheck.indexOf(message.member.user.tag), 1);
+
+      let actionObj = {
+        user: message.author.username,
+        channel: {
+          name: message.channel.name,
+          id: message.channel.id
+        },
+        offense: "Repeated unauthorized Everyone/Here Ping",
+        action: "Message Deleted & User Banned",
+        messageObj: {
+          id: message.id,
+          content: message.content
+        }
+      }
+
+      _logModerationAction(actionObj);
+    } else {
+      message.delete();
+      message.reply("Hey there. You have tried to ping everyone in this server. While disabled and thus without effect, we still do not appreciate the attempt. Repeated attempts to mass ping will be met with a ban.\nIn the event of important notifications or alerts that we need to be aware of, please contact staff.").then(disclaimer => {
+        setTimeout(() => {
+          disclaimer.delete();
+        }, 15000);
+      })
+      let userTag = message.member.user.tag;
+      botSpamCheck.push(userTag);
+
+      let actionObj = {
+        user: message.author.username,
+        channel: {
+          name: message.channel.name,
+          id: message.channel.id
+        },
+        offense: "Unauthorized Everyone/Here Ping",
+        action: "Message Deleted & Warning issued",
+        messageObj: {
+          id: message.id,
+          content: message.content
+        }
+      }
+
+      _logModerationAction(actionObj);
+
+      setTimeout(() => {
+        if (botSpamCheck.includes(userTag))
+          botSpamCheck.splice(botSpamCheck.indexOf(userTag), 1);
+      }, 45000);
+
+    }
+  }
+
+
+  if (message.channel.id == roleHandlingChannel)
+    roleManagement(message);
+  else if (message.channel.id == glitchesChannel)
+    stickyGlitchHandling(message);
+  else if (message.channel.id == streamNotificationChannel)
+    streamNotificationManagement(message);
+});
+
+//Discord Handler
+function _logModerationAction(actionObj) {
+  let channel = bot.guilds.cache.get(activeGuild).channels.cache.get(loggingChannel);
+
   var postDate = JSON.parse(JSON.stringify(new Date()));
+
   const embed = {
-    "title": stream.url + " just went live: " + stream.title,
-    "url": stream.url,
-    "color": 1369976,
+    "title": "Bot Moderation Action: " + actionObj.action,
+    "description": "Reason: " + actionObj.offense,
+    "url": `https://discord.com/channels/${activeGuild}/${actionObj.channel.id}/${actionObj.messageObj.id}`,
+    "color": 13632027,
     "timestamp": postDate,
     "footer": {
-      "icon_url": "https://gamepedia.cursecdn.com/zelda_gamepedia_en/thumb/3/33/BotW_Blue_Sheikah_Eye_Symbol.png/324px-BotW_Blue_Sheikah_Eye_Symbol.png",
-      "text": "Streaming BotW"
+      "icon_url": config["bot-avatar-url"],
+      "text": config["bot-user-name"] + " - Auto Moderation"
     },
-    "thumbnail": {
-      "url": "https://sm.ign.com/ign_de/screenshot/default/breathofthewild3_yhvq.jpg"
-    },
+    "fields": [{
+        "name": "User",
+        "value": actionObj.user,
+        "inline": true
+      },
+      {
+        "name": "Channel",
+        "value": actionObj.channel.name,
+        "inline": true
+      },
+      {
+        "name": "Original Message",
+        "value": actionObj.messageObj.content,
+        "inline": true
+      }
+    ],
     "author": {
-      "name": stream.name + " is now live on Twitch!",
-      "url": stream.url,
-      "icon_url": "https://gamepedia.cursecdn.com/zelda_gamepedia_en/thumb/3/33/BotW_Blue_Sheikah_Eye_Symbol.png/324px-BotW_Blue_Sheikah_Eye_Symbol.png"
+      "name": config["bot-user-name"],
+      "icon_url": config["bot-avatar-url"]
     }
   };
-  channel.send({ embed }).catch((e) => {
-    console.log(e);
+
+  if (("att" in actionObj.messageObj) && actionObj.messageObj.att.length > 0) {
+    embed.fields.push({
+      "name": "Message Attachment(s)",
+      "value": actionObj.messageObj.att,
+      "inline": true
+    })
+  }
+
+  channel.send({ embeds: [embed]
+  }).catch((e) => {
+    console.error(e);
   });
- 
- /* notifyDiscordChannel.send(notificationMessage).then((message) => {
-    //console.log(message);
-  })*/
-});
-twitch.on('messageStreamDeleted', (stream) => {
-  console.log (stream.url + " went offline");
-  let channel = discordClient.channels.get(config['discord-notifications-channel-id']); 
-  channel.fetchMessages({limit: 30})
-    .then(messages => messages.forEach(message => {
-     if ((message.embeds) && (message.embeds.length >0)) {
-        if (message.embeds[0].message.embeds[0].url == stream.url) {
-          message.delete();
-          console.log(message.id + " live message deleted!");
-        }
-      }
-      /*if (message.content.includes(stream.url))
-      message.delete();*/
+}
+
+
+async function _clearChat(textChannelID, wipeStreams = false) {
+
+  let channel = bot.channels.cache.get(textChannelID);
+
+  if (!channel)
+    return;
+
+  let messages = await wipeChannelAndReturnMessages(channel);
+
+  console.log("Channel Clearing: Removed", messages.size, "messages in channel", channel.name);
+  if (wipeStreams) {
+    state.activeStreams = {};
+    commitState();
+  }
+}
+
+async function wipeChannelAndReturnMessages(textChannel) {
+  console.log("clearing all messages from " + textChannel.id);
+
+  let deletedMessages = await textChannel.bulkDelete(99, true);
+
+  let msgPool = deletedMessages;
+
+  while (deletedMessages.size > 0) {
+    deletedMessages = await textChannel.bulkDelete(99, true);
+    if (deletedMessages.size > 0)
+      msgPool = msgPool.concat(deletedMessages); 
+  }
+
+  return msgPool;
+}
+
+//Cleanup
+function checkForOutdatedStreams() {
+  for (stream in state.activeStreams) {
+    let streamObj = state.activeStreams[stream];
+     //if streamObj has not been updated in 12 hours (for example, in event of a bot crash)
+    if ((streamObj.lastUpdate + 12*60*60) < new Date().getTime()) {
+      bot.guilds.cache.get(activeGuild).channels.cache.get(streamNotificationChannel).fetch(state.activeStream[stream].messageID)
+      .then(fetchedMsg => {
+        fetchedMsg.delete()
+        .then(() => console.log(`Deleted abandoned stream message for stream ${state.activeStreams[stream]["display_name"]}`))
+        .catch(console.error);
+      })
       
-    }))
-    .catch(console.error);
-});
-discordClient.on('ready', () => {
-  function failToSet(setting) {return (e) => {
-    console.log('Failed to set ' + setting);
-    console.log(e);
-  }}
-  discordClient.user.setPresence({
-    "status": 'online',
-    "game": {
-      "name": config['bot-currently-playing'],
-      "type": "streaming",
-      "url": "https://www.twitch.tv/directory/game/The%20Legend%20of%20Zelda%3A%20Breath%20of%20the%20Wild"
+      delete state.activeStream[stream]
+      commitState();
     }
-  }).catch(failToSet('presence'));
-});
-function toWeirdCase (pattern, str) {
-  return str.split('').map((v, i) => pattern[i%7+1] === pattern[i%7+1].toLowerCase() ? v.toLowerCase() : v.toUpperCase()).join('');
+  }
 }
-discordClient.on('message', (message) => {
-  let streamCommandRegex = /^(\.|!)streams$/i;
-  let streamNotCased = /^(\.|!)streams$/;
-  let channel = discordClient.channels.get(config['discord-notifications-channel-id']); 
-  let colorCommand = /^(\.|!)color/;
-  let roleCommand = /^(\.|!)role/;
-  let roleRCommand = /^(\.|!)removerole/;
-  let clearCommand = /^(\.|!)clear$/;
-  let commandsCommand = /^(\.|!)commands$/;
-  if (message.channel.id === colorDiscordChannel.id && commandsCommand.test(message.content)) {
-    let colorOpts = "";
-    config["colors"].forEach(color => {
-      colorOpts = colorOpts + color + "/";
-    });
-    colorOpts = colorOpts.slice(0,-1);
 
-    message.channel.send("**Available Commands:** \n\n- !color [" + colorOpts + "] \n- !role [Bingo/Race/Randomizer] \n- !removerole [Bingo/Race/Randomizer]");
-    return;
-  }
-  if (message.channel.id === colorDiscordChannel.id && colorCommand.test(message.content)) {
-    _colorHandling(message);
-    return;
-  }
-  if (message.channel.id === responseDiscordChannel.id && clearCommand.test(message.content)) {
-    _clearChat(message,message.channel.id);
-    return;
-  }
-  if (message.channel.id === colorDiscordChannel.id && roleCommand.test(message.content)) {
-    _roleAdd(message);
-    return;
-  }
-  if (message.channel.id === colorDiscordChannel.id && roleRCommand.test(message.content)) {
-    _roleRemove(message);
-    return;
-  }
-  if (message.channel.id === responseDiscordChannel.id && streamCommandRegex.test(message.content)) {
-    let applyWeirdCase = !streamNotCased.test(message.content);
-    let streams = twitch.getStreams();
-    let nobodyStreaming = 'Nobody is streaming.';
-    let unknownStreaming = 'At least 1 person is streaming. I\'ll push notification(s) after I finish gathering data.';
-    if (applyWeirdCase) {
-      nobodyStreaming = toWeirdCase(message.content, nobodyStreaming);
-      unknownStreaming = toWeirdCase(message.content, unknownStreaming);
-    }
-    if (Object.keys(streams).length === 0) {
-      message.channel.send(nobodyStreaming);
-    } else {
-      let streamsString = '';
-      for (let stream of Object.keys(streams)) {
-        let streamTitle = streams[stream]["title"];
-        if (applyWeirdCase) {
-          streamTitle = toWeirdCase(message.content, streamTitle);
-        }
-        if (typeof streams[stream]["login"] !== 'undefined') {
-          streamsString += '<' + streams[stream]["url"] + '> - ' + streamTitle + '\n';
-        }
-      }
-      if (streamsString === '') {
-        message.channel.send(unknownStreaming);
-      } else {
-        streamsString = streamsString.slice(0, -1);
-        message.channel.send(streamsString);
-      }
-    }
-  }
-});
-function _roleAdd(message) {
-  if (message.content.length < 6) {
-    message.reply("No role specified!");
-    return;
-  }
-  var role = message.content.substr(6).toLowerCase();
-
-  switch(role) {
-    case "race":
-      role = "Race";
-    break;
-    case "bingo":
-      role = "Bingo";
-    break;
-    case "randomizer":
-      role = "Randomizer";
-    break;
-  }
-
-  if (["admin", "administrator", "staff", "daddy", "mods", "mod", "moderator", "bot", "restreamer"].includes(role)) {
-    message.reply("Nice try smarty-pants. You wish ;)");
-    return;
-  }
-  if (!["Race", "Bingo", "Randomizer"].includes(role)) {
-    message.reply("You didn't specify a valid role. Available Roles: Race, Bingo, Randomizer");
-    return;
-  }
-
-  let selectedRole = message.guild.roles.find(x => x.name === role);
-  var userToAdd = message.guild.members.find(member => {
-    if (member.user.tag === message.author.tag)
-      return true;
-    return false;
+//Sys
+function commitState() {
+  jsonfile.writeFile(stateFile, state, { spaces: 2 }, function (err) {
+    if (err) console.error(err)
   });
-
-  if (!userToAdd.roles.has(selectedRole.id))  {
-    userToAdd.addRole(selectedRole).catch(console.error);
-    message.reply("You just got the " + role + " role!");
-  } else {
-    message.reply("You already have this role!");
-    return;
-  }
-  return;
 }
 
-function _roleRemove(message) {
-  if (message.content.length < 12) {
-    message.reply("No role specified!");
-    return;
-  }
-  var role = message.content.substr(12).toLowerCase();
-
-  switch(role) {
-    case "race":
-      role = "Race";
-    break;
-    case "bingo":
-      role = "Bingo";
-    break;
-    case "randomizer":
-      role = "Randomizer";
-    break;
-  }
-
-  if (["admin", "administrator", "staff", "daddy", "mods", "mod", "moderator", "bot", "restreamer"].includes(role)) {
-    message.reply("Nice try smarty-pants. You wish ;)");
-    return;
-  }
-  if (!["Race", "Bingo", "Randomizer"].includes(role)) {
-    message.reply("You didn't specify a valid role. Available Roles: Race, Bingo, Randomizer");
-    return;
-  }
-
-  let selectedRole = message.guild.roles.find(x => x.name === role);
-  var userToRemove = message.guild.members.find(member => {
-    if (member.user.tag === message.author.tag)
-      return true;
-    return false;
-  });
-  if (userToRemove.roles.has(selectedRole.id)) {
-    userToRemove.removeRole(selectedRole);
-    message.reply(role + " role removed!");	
-  } else 
-    message.reply("You do not have the " + role + " role!");	
-  return;
-}
-function _colorHandling(message) {
-  if (!message.member.roles.find(x => x.name === "Runner") && !message.member.roles.find(x => x.name === "Staff")) {
-    message.reply("Sorry, but you need to have the Runner role to be able to select a custom color!");
-    return;
-  }
-
-  let color = message.content.split("color")[1].trim().toLowerCase();
-  let colorIndex = config["colors"].indexOf(color);
-  if (color == "none") {
-    config["colors"].forEach(selectableColor => {
-      let serverColor = message.guild.roles.find(x => x.name.toLowerCase() == selectableColor);
-      if (serverColor && message.member.roles.has(serverColor.id))
-        message.member.removeRole(serverColor).catch(console.error);
-    });
-    message.reply("You're blank now! BORING!");
-  } else {
-    if (config["colors"].indexOf(color) != -1) {
-      let colorToAdd = message.guild.roles.find(x => x.name.toLowerCase() == config["colors"][colorIndex]);
-      if (message.member.roles.has(colorToAdd.id)) {
-        message.reply("You already have that color!");
-      } else {
-        config["colors"].forEach(selectableColor => {
-          //console.log(selectableColor);
-          let serverColor = message.guild.roles.find(x => x.name.toLowerCase() == selectableColor);
-          if (serverColor && message.member.roles.has(serverColor.id))
-            message.member.removeRole(serverColor).catch(console.error);
-        });
-        message.member.addRole(colorToAdd).catch(console.error);
-        message.reply("Done!");
-      }
-    } else message.reply("Invalid Color!");
-  }
+function escapeDiscordSpecials(inputString) {
+  return inputString.replace(/_/g, "\_").replace(/\*/g, "\\*").replace(/~/g, "\~");
 }
 
-function _clearChat(message, textChannelID) {
-  if (!message.member.roles.find(x => x.name === "Staff"))
-    return;
 
-	let channel = discordClient.channels.get(textChannelID);
+//Init
+bot.login(discordToken)
+.catch(err => {
+  console.error(err);
+});
 
-	console.log("Fetch messages from " + channel.id);
 
-	channel.fetchMessages({ limit: 99 })
-		.then(messages => {
-			if (messages.size > 2) {
-				channel.bulkDelete(messages, false)
-					.then(() => {
+bot.on('error', () => {
+  console.error("The bot encountered a connection error!!");
 
-						console.log("Removed " + messages.size + " messages");
+  setTimeout(() => {
 
-						_clearChat(message, textChannelID);
-					});
-			}
-			else if (messages.size > 0) {
+    bot.login(discordToken);
+  }, 10000);
+});
 
-				console.log("Remove final " + messages.size + " messages");
+bot.on('disconnect', () => {
+  console.error("The bot disconnected!!");
 
-				Array.from(messages.values()).forEach(message => {
+  botIsReady = false;
 
-					message.delete();
-				});
-			}
-			else {
-				console.log("No more messages left");
-			}
-		})
-		.catch(error => console.log(error));
-}
+  setTimeout(() => {
+    bot.login(discordToken);
+  }, 10000);
+});
+
+setInterval(() => {
+  checkForOutdatedStreams();
+}, 300000);

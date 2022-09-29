@@ -1,69 +1,78 @@
-const rp = require('request-promise');
 const EventEmitter = require('events');
 
-const editJsonFile = require("edit-json-file");
-const json = editJsonFile("./config.json");
-const config = json.get();
-var game;
+const jsonfile = require('jsonfile');
+const axios = require('axios');
+const qs = require('qs');
+
+const configFile = './config.json';
+const config = jsonfile.readFileSync(configFile);
 const streamEmitter = new EventEmitter();
-let startup = false;
-let streams = { };
-let tags = [
-  "7cefbf30-4c3e-4aa7-99cd-70aabb662f27", 
-  "2fd30cb8-f2e5-415d-9d42-1316cfa61367",
-  "0b83a789-5f6a-45f0-b6a3-a56926b6f8b5",
-];//Speedrun, Randomizer, TAS
+
+let startup = true;
+let streams = {};
+let tags = config["target-stream-tags"];
+let titleWordlist = config["target-stream-title-wordlist"];
+let detectionMode = config["target-stream-detection-type"];
+
+if (detectionMode == undefined)
+  detectionMode = "tags";
+
 async function getOauthToken() {
-  if (Date.now() < config["twitch-access-token-expires-At"] && config["twitch-access-token"].length > 0) {
+  if (Date.now() < config["twitch-access-token-expires-At"] && config["twitch-access-token"] && config["twitch-access-token"].length > 0) {
     return config["twitch-access-token"];
   }
-  const res = await rp.post("https://id.twitch.tv/oauth2/token", {
-    body: {
-      "client_id": config["twitch-client-id"],
-      "client_secret": config["twitch-client-secret"],
+  const res = await axios({
+    url: "https://id.twitch.tv/oauth2/token",
+    method: "POST",
+    headers: {},
+    data: {
+      client_id: config["twitch-client-id"],
+      client_secret: config["twitch-client-secret"],
       "grant_type": "refresh_token",
-      "refresh_token": config["twitch-refresh-token"],
-    },
-    json: true,
+      refresh_token: config["twitch-refresh-token"],
+    }
   });
-  if (!res["access_token"]) {
+  if (!res.data["access_token"]) {
     throw new Error("API did not provide an OAuth token!");
   }
-  updateConfig("twitch-access-token", res["access_token"]);
-  updateConfig("twitch-access-token-expires-At",Date.now() + 3500 * 1000);
-
-  return res["access_token"];
+  if (res.data["access_token"]) {
+    updateConfig("twitch-access-token", res.data["access_token"]);
+    updateConfig("twitch-access-token-expires-At", Date.now() + 3500 * 1000);
+  }
+  return res.data["access_token"];
 }
 
 function getStreams(token) {
-  return rp.get("https://api.twitch.tv/helix/streams", {
+  return axios({
+    url: `https://api.twitch.tv/helix/streams?game_id=${config["target-game-ids"].join("&game_id=")}&first=99&type=live`,
+    method: "GET",
     headers: {
       "Client-ID": config["twitch-client-id"],
       "Authorization": "Bearer " + token,
     },
-    qs: {
-      "game_id": config["target-game-id"],
+    params: {
+      "game_id": config["target-game-ids"],
       "first": 99,
       "type": 'live',
-    },
-    json: true,
+    }
   });
 }
 
-function getUsers (ids) {
-  return rp.get("https://api.twitch.tv/helix/users", {
+function getUsers(ids) {
+  return axios({
+    url: "https://api.twitch.tv/helix/users",
+    method: "GET",
     headers: {
       "Client-ID": config["twitch-client-id"],
       "Authorization": "Bearer " + config["twitch-access-token"],
     },
-    qs: {
+    params: {
       "id": ids,
-    },
-    json: true,
+    }
   });
 }
 
-async function streamLoop () {
+async function streamLoop() {
   // Uncomment for logging.
   //console.log("Get streams...");
   //console.log(".--current streams--.");
@@ -71,72 +80,80 @@ async function streamLoop () {
   //console.log("'-------------------'");
   getOauthToken().then((token) => {
     return getStreams(token);
-  }).then((data) => {
-    let res = data.data;
-    let user_ids = [ ];
-    for (let i = 0;i<res.length;i++) {
-      let stream = res[i];
-      if (stream.tag_ids) {
-        var speedrun = tags.find(tag => {
-          if (stream.tag_ids.includes(tag))
-            return true;
-          return false;
-        });
+  }).then((res) => {
+    let streamData = res.data.data;
+    let user_ids = [];
+    for (let i = 0; i < streamData.length; i++) {
+      let stream = streamData[i];
+      let speedrun = false;
+      if (detectionMode == "tags") { //tags mode
+        if (stream.tag_ids) {
+          speedrun = tags.find(tag => {
+            if (stream.tag_ids.includes(tag))
+              return true;
+            return false;
+          });
+        } 
+      } else { //title mode
+            speedrun = titleWordlist.some(val => {
+            let regex = new RegExp('(^|\\s|!|-|\\.|\\?|,)' + val.toLowerCase() + '($|\\s|!|-|\\.|\\?|,)', 'g')
+
+            return regex.test(stream["title"].toLowerCase());
+          });
       }
+
       if (speedrun) {
         user_ids.push(stream["user_id"]);
         if (typeof streams[stream["user_id"]] === 'undefined') {
-          streams[stream["user_id"]] = { };
+          streams[stream["user_id"]] = {};
         }
         streams[stream["user_id"]]["timer"] = 15;
         streams[stream["user_id"]]["title"] = stream["title"];
         streams[stream["user_id"]]["viewer_count"] = stream["viewer_count"];
-        streams[stream["user_id"]]["game_id"] = stream["game_id"]
-      }      
+        streams[stream["user_id"]]["game_id"] = stream["game_id"];
+        streams[stream["user_id"]]["game_name"] = stream["game_name"];
+      }
     }
     if (user_ids.length > 0) {
       return getUsers(user_ids);
     }
     return null;
-  }).then((data) => {
-    if (data === null) {
+  }).then((response) => {
+    if (response === null) {
       return;
     }
-    let res = data.data;
-    for (let i = 0;i<res.length;i++) {
-      let stream = res[i];
-      if (typeof streams[stream["id"]]["url"] === 'undefined') {
+    let userData = response.data.data;
+    for (let i = 0; i < userData.length; i++) {
+      let userElem = userData[i];
+      if (typeof streams[userElem["id"]]["url"] === 'undefined') {
         if (startup === true) {
           streamEmitter.emit('messageStreamStarted', {
-            "url": 'https://www.twitch.tv/' + stream["login"],
-            "name": stream["login"],
-            "title": streams[stream["id"]]["title"],
-            "game": "Breath of the Wild",
-            // "id": stream["id"],
-            // "display_name": stream["display_name"],
-            // "login": stream["login"]
+            "id": userElem["id"],
+            "url": 'https://www.twitch.tv/' + userElem["login"],
+            "name": userElem["login"],
+            "title": streams[userElem["id"]]["title"],
+            "game": streams[userElem["id"]]["game_name"],
+            "user_profile_image": userElem["profile_image_url"]
           });
         }
       }
-      streams[stream["id"]]["url"] = 'https://www.twitch.tv/' + stream["login"];
-      streams[stream["id"]]["display_name"] = stream["display_name"];
-      streams[stream["id"]]["login"] = stream["login"];
+      streams[userElem["id"]]["url"] = 'https://www.twitch.tv/' + userElem["login"];
+      streams[userElem["id"]]["display_name"] = userElem["display_name"];
+      streams[userElem["id"]]["login"] = userElem["login"];
+      streams[userElem["id"]]["lastUpdate"] = new Date().getTime();
     }
     return;
   }).catch((e) => {
     console.error(e);
   }).then(() => {
-    if (startup === false) {
-      startup = true;
-    }
     setTimeout(streamLoop, 30000);
   });
 }
 
+
 function updateConfig(key, value) {
   config[key] = value;
-  json.set(key,  value);
-  json.save();
+  jsonfile.writeFile(configFile, config);
 }
 
 setTimeout(streamLoop, 15000);
@@ -154,7 +171,7 @@ setInterval(() => {
       delete streams[stream];
     }
   }
-}, 20000);
+}, 10000);
 streamEmitter.getStreams = () => {
   return streams;
 }
