@@ -50,15 +50,22 @@ if (!fs.existsSync(stateFile)) {
   
 //Discord Init
 let botIsReady = false;
-const botIntents = new Discord.Intents();
-const bot = new Discord.Client({
-  intents: ["GUILDS", "GUILD_MEMBERS", "GUILD_BANS", "GUILD_EMOJIS_AND_STICKERS", "GUILD_INTEGRATIONS", "GUILD_WEBHOOKS", "GUILD_INVITES", "GUILD_VOICE_STATES", "GUILD_PRESENCES", "GUILD_MESSAGES", "GUILD_MESSAGE_REACTIONS", "GUILD_MESSAGE_TYPING", "DIRECT_MESSAGES", "DIRECT_MESSAGE_REACTIONS", "DIRECT_MESSAGE_TYPING"],
-  partials: ['MESSAGE', 'CHANNEL', 'REACTION'],
-  restTimeOffset: 1000
-});
-let botSpamCheck = [];
+const botIntents = [
+  Discord.GatewayIntentBits.Guilds,
+  Discord.GatewayIntentBits.GuildMembers,
+  Discord.GatewayIntentBits.GuildBans,
+  Discord.GatewayIntentBits.GuildEmojisAndStickers,
+  Discord.GatewayIntentBits.GuildPresences,
+  Discord.GatewayIntentBits.GuildMessages,
+  Discord.GatewayIntentBits.GuildMessageReactions,
+  Discord.GatewayIntentBits.DirectMessages,
+  Discord.GatewayIntentBits.MessageContent
+];
 
-botIntents.add("GUILDS", "GUILD_MEMBERS", "GUILD_BANS", "GUILD_EMOJIS_AND_STICKERS", "GUILD_INTEGRATIONS", "GUILD_WEBHOOKS", "GUILD_INVITES", "GUILD_VOICE_STATES", "GUILD_PRESENCES", "GUILD_MESSAGES", "GUILD_MESSAGE_REACTIONS", "GUILD_MESSAGE_TYPING", "DIRECT_MESSAGES", "DIRECT_MESSAGE_REACTIONS", "DIRECT_MESSAGE_TYPING");
+const botPartials = ['MESSAGE', 'CHANNEL', 'REACTION'];
+
+const bot = new Discord.Client({ intents: botIntents, partials: botPartials, restTimeOffset: 200 });
+let botSpamCheck = [];
 
 bot.on('ready', () => {
   botIsReady = true;
