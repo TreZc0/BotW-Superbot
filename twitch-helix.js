@@ -95,7 +95,11 @@ async function streamLoop() {
           });
         } 
       } else { //title mode
-          speedrun = titleWordlist.some(val => stream["title"].toLowerCase().includes(val.toLowerCase()));
+            speedrun = titleWordlist.some(val => {
+            let regex = new RegExp('(^|\\s|!|-|\\.|\\?|,)' + val.toLowerCase() + '($|\\s|!|-|\\.|\\?|,)', 'g')
+
+            return regex.test(stream["title"].toLowerCase());
+          });
       }
 
       if (speedrun) {
