@@ -1,0 +1,28 @@
+{
+  "discord-server-id": "<server-id>",
+  "discord-role-channel-id": "<channel-id-for-role-management>",
+  "discord-notifications-channel-id": "<channel-id-for-stream-announcements>",
+  "discord-logging-channel-id": "<channel-id-for-action-log>",
+  "discord-token": "abcd.1234",
+  "discord-glitches-channel-id": "<channel-id-for-glitch-discussion-and-commands>",
+  "discord-stickied-glitches-channel-id": "<channel-id-for-glitch-documentation>",
+  "discord-available-roles": ["Commentary", "Runner", ...],
+  "discord-banned-file-ext": [],
+  "bot-user-name": "Your BotName",
+  "bot-avatar-url": "https://cdn.discordapp.com/app-icons/467693631986466825/f6b52aef5431c2814e2c164a36383955.png",
+  "target-game-ids": [
+    << comma-separated list of twitch game ids: https://dev.twitch.tv/docs/api/reference#get-games >>
+  ],
+  "target-stream-tags": [
+    << comma-separated list of twitch stream tag ids: https://dev.twitch.tv/docs/api/reference#get-all-stream-tags >>
+  ],
+   "target-stream-title-wordlist": [
+    << comma-separated list of words or phrases being tracked in twitch titles >>
+  ],
+  "target-stream-detection-type": "title" or "tags",
+  "twitch-client-id": "<twitch application client id>",
+  "twitch-client-secret": "<twitch application client secret>",
+  "twitch-refresh-token": "<twitch application oauth2 refresh token>",
+  "twitch-access-token": "<twitch application oauth2 access token (optional, will be refreshed)",
+  "twitch-access-token-expires-At": 0
+}

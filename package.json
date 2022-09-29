@@ -1,8 +1,30 @@
 {
+  "name": "zsr-communitybot",
+  "description": "Discord Bot for the ZSR communities featuring Twitch Stream detection, role management, and auto moderation",
+  "main": "index.js",
+  "version": "1.6.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TreZc0/zsr-communitybot.git"
+  },
+  "bugs": "https://github.com/TreZc0/zsr-communitybot/issues",
+  "homepage": "https://www.zeldaspeedruns.com/",
+  "license": "MIT",
+  "keywords": [
+    "discord",
+    "bot",
+    "twitch",
+    "role management",
+    "community handling",
+    "streambot"
+  ],
   "dependencies": {
-    "discord.js": "11.3.2",
-    "edit-json-file": "1.4.0",
-    "request": "^2.88.2",
-    "request-promise": "^4.2.5"
+    "axios": "^0.27.2",
+    "discord.js": "14.5.0",
+    "jsonfile": "^6.1.0",
+    "qs": "^6.11.0"
+  },
+  "engines": {
+    "node": ">=16.9.0"
   }
 }
