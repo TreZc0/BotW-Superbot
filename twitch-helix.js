@@ -153,7 +153,9 @@ async function streamLoop() {
 
 function updateConfig(key, value) {
   config[key] = value;
-  jsonfile.writeFile(configFile, config);
+  jsonfile.writeFile(configFile, config, { spaces: 2 }, function (err) {
+    if (err) console.error(err)
+  });
 }
 
 setTimeout(streamLoop, 15000);
