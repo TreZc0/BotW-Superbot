@@ -96,7 +96,7 @@ async function streamLoop() {
         } 
       } else { //title mode
             speedrun = titleWordlist.some(val => {
-            let regex = new RegExp('(^|\\s|!|-|\\.|\\?|,)' + val.toLowerCase() + '($|\\s|!|-|\\.|\\?|,)', 'g')
+            let regex = new RegExp('(^|\\s|!|-|\\.|\\?|,)' + val.toLowerCase() + '($|\\s|!|-|\\.|\\?|,)', 'i')
 
             return regex.test(stream["title"].toLowerCase());
           });
