@@ -13,6 +13,7 @@ let streams = {};
 let tags = config["target-stream-tags"];
 let titleWordlist = config["target-stream-title-wordlist"];
 let detectionMode = config["target-stream-detection-type"];
+let currentTwitchToken;
 
 if (detectionMode == undefined)
   detectionMode = "tags";
@@ -42,9 +43,13 @@ async function getOauthToken() {
   return res.data["access_token"];
 }
 
-function getStreams(token) {
+function getStreams(token, cursor=null) {
+  let apiURL = `https://api.twitch.tv/helix/streams?game_id=${config["target-game-ids"].join("&game_id=")}&first=99&type=live`;
+
+  if (cursor)
+    apiURL = apiURL + `&after=${cursor}`
   return axios({
-    url: `https://api.twitch.tv/helix/streams?game_id=${config["target-game-ids"].join("&game_id=")}&first=99&type=live`,
+    url: apiURL,
     method: "GET",
     headers: {
       "Client-ID": config["twitch-client-id"],
@@ -78,13 +83,25 @@ async function streamLoop() {
   //console.log(".--current streams--.");
   //console.log(streams)
   //console.log("'-------------------'");
+  let streamList = [];
+
   getOauthToken().then((token) => {
-    return getStreams(token);
-  }).then((res) => {
-    let streamData = res.data.data;
+    currentTwitchToken = token;
+    return getStreams(currentTwitchToken);
+  }).then(async (res) => {
+
+    let streamCursor = res.data.pagination.cursor;
+    streamList = streamList.concat(res.data.data);
+
+    while (streamCursor != null) {
+      let extraRes = await getStreams(currentTwitchToken, streamCursor); 
+      streamList = streamList.concat(extraRes.data.data);
+      streamCursor = extraRes.data.pagination.cursor;
+    }
+
     let user_ids = [];
-    for (let i = 0; i < streamData.length; i++) {
-      let stream = streamData[i];
+    for (let i = 0; i < streamList.length; i++) {
+      let stream = streamList[i];
       let speedrun = false;
       if (detectionMode == "tags") { //tags mode
         if (stream.tag_ids) {
