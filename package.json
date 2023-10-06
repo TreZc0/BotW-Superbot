@@ -19,10 +19,10 @@
     "streambot"
   ],
   "dependencies": {
-    "axios": "^0.27.2",
-    "discord.js": "14.5.0",
+    "axios": "^1.5.1",
+    "discord.js": "14.13.0",
     "jsonfile": "^6.1.0",
-    "qs": "^6.11.0"
+    "qs": "^6.11.2"
   },
   "engines": {
     "node": ">=16.9.0"

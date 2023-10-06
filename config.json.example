@@ -7,6 +7,7 @@
   "discord-glitches-channel-id": "<channel-id-for-glitch-discussion-and-commands>",
   "discord-stickied-glitches-channel-id": "<channel-id-for-glitch-documentation>",
   "discord-available-roles": ["Commentary", "Runner", ...],
+  "discord-auto-moderation-tools-enabled": true/false
   "discord-banned-file-ext": [],
   "bot-user-name": "Your BotName",
   "bot-avatar-url": "https://cdn.discordapp.com/app-icons/467693631986466825/f6b52aef5431c2814e2c164a36383955.png",

@@ -18,6 +18,7 @@ const glitchesChannel = config["discord-glitches-channel-id"];
 const stickyGlitchesChannel = config["discord-stickied-glitches-channel-id"];
 const loggingChannel = config["discord-logging-channel-id"];
 const bannedFileExtensions = config["discord-banned-file-ext"];
+const autoMod = config["discord-auto-moderation-tools-enabled"];
 
 //Role Init
 const numToDiscordEmojis = {
@@ -71,7 +72,7 @@ bot.on('ready', () => {
   botIsReady = true;
   console.log('Logged in as %s - %s\n', bot.user.username, bot.user.id);
 
-  if (state.activeReactionMessage.length > 0) {
+  if (state.activeReactionMessage.length > 0 && roleHandlingChannel.length > 0) {
     bot.guilds.cache.get(activeGuild).channels.cache.get(roleHandlingChannel).messages.fetch(state.activeReactionMessage, true, true);
   }
 });
@@ -369,131 +370,131 @@ function bannedAttachmentCheck(message) {
 //Message Handler
 bot.on('messageCreate', message => {
 
-  let forbiddenMessageDeleted = false;
-  if (bannedFileExtensions.length > 0 && message.attachments.size > 0) {
-    forbiddenMessageDeleted = bannedAttachmentCheck(message);
-  }
+  if (autoMod) {
+    let forbiddenMessageDeleted = false;
+    if (bannedFileExtensions.length > 0 && message.attachments.size > 0) {
+      forbiddenMessageDeleted = bannedAttachmentCheck(message);
+    }
 
-  if (forbiddenMessageDeleted)
-    return;
+    if (forbiddenMessageDeleted)
+      return;
 
-  if ((message.content.toLowerCase().includes("nitro for free") || message.content.toLowerCase().includes("free discord nitro") || message.content.toLowerCase().includes("disorde.gift")) && message.member.roles.cache.size < 2) {
-    message.member.ban({
-        days: 7,
-        reason: "Malware Bot, auto banned by bot!"
-      })
-      .then(() => {
-        console.log("Malware Spam Bot banned! Username: " + message.member.user.tag)
-        let actionObj = {
-          user: message.author.username,
-          channel: {
-            name: message.channel.name,
-            id: message.channel.id
-          },
-          offense: "Discord Phishing Attempt with suspicious link",
-          action: "Message Deleted & User Banned",
-          messageObj: {
-            id: message.id,
-            content: message.content
-          }
-        }
-
-        _logModerationAction(actionObj);
-      })
-      .catch(error => console.log("Couldn't ban bot because of the following error: \n" + error));
-  }
-
-  if (message.member.roles.cache.size < 2 && (new RegExp('dis(?!cord)[0-9a-zA-Z]{1,}\.gift\/.', 'g').test(message.content.toLowerCase()) || new RegExp('dis(?!cord)[0-9a-zA-Z]{1,}app\.com\/', 'g').test(message.content.toLowerCase()))) {
-    message.member.ban({
-        days: 7,
-        reason: "Malware Bot, auto banned by bot!"
-      })
-      .then(() => {
-        console.log("Malware Spam Bot banned! Username: " + message.member.user.tag)
-        let actionObj = {
-          user: message.author.username,
-          channel: {
-            name: message.channel.name,
-            id: message.channel.id
-          },
-          offense: "Discord Phishing Attempt with suspicious link",
-          action: "Message Deleted & User Banned",
-          messageObj: {
-            id: message.id,
-            content: message.content
-          }
-        }
-
-        _logModerationAction(actionObj);
-      })
-      .catch(error => console.log("Couldn't ban bot because of the following error: \n" + error));
-  }
-
-  if (message.member && !message.member.permissions.has("MentionEveryone") && (message.content.includes("@everyone") || message.content.includes("@here"))) {
-    if (botSpamCheck.includes(message.member.user.tag)) {
-
-      message.delete();
+    if ((message.content.toLowerCase().includes("nitro for free") || message.content.toLowerCase().includes("free discord nitro") || message.content.toLowerCase().includes("disorde.gift")) && message.member.roles.cache.size < 2) {
       message.member.ban({
           days: 7,
-          reason: "Spam Bot with mass pings, auto banned by bot!"
+          reason: "Malware Bot, auto banned by bot!"
         })
-        .then(console.log("Spam Bot wit mass pings banned! Username: " + message.member.user.tag))
-        .catch(error => console.info("Couldn't ban bot because of the following error: \n" + error));
-      botSpamCheck.splice(botSpamCheck.indexOf(message.member.user.tag), 1);
+        .then(() => {
+          console.log("Malware Spam Bot banned! Username: " + message.member.user.tag)
+          let actionObj = {
+            user: message.author.username,
+            channel: {
+              name: message.channel.name,
+              id: message.channel.id
+            },
+            offense: "Discord Phishing Attempt with suspicious link",
+            action: "Message Deleted & User Banned",
+            messageObj: {
+              id: message.id,
+              content: message.content
+            }
+          }
 
-      let actionObj = {
-        user: message.author.username,
-        channel: {
-          name: message.channel.name,
-          id: message.channel.id
-        },
-        offense: "Repeated unauthorized Everyone/Here Ping",
-        action: "Message Deleted & User Banned",
-        messageObj: {
-          id: message.id,
-          content: message.content
+          _logModerationAction(actionObj);
+        })
+        .catch(error => console.log("Couldn't ban bot because of the following error: \n" + error));
+    }
+
+    if (message.member.roles.cache.size < 2 && (new RegExp('dis(?!cord)[0-9a-zA-Z]{1,}\.gift\/.', 'g').test(message.content.toLowerCase()) || new RegExp('dis(?!cord)[0-9a-zA-Z]{1,}app\.com\/', 'g').test(message.content.toLowerCase()))) {
+      message.member.ban({
+          days: 7,
+          reason: "Malware Bot, auto banned by bot!"
+        })
+        .then(() => {
+          console.log("Malware Spam Bot banned! Username: " + message.member.user.tag)
+          let actionObj = {
+            user: message.author.username,
+            channel: {
+              name: message.channel.name,
+              id: message.channel.id
+            },
+            offense: "Discord Phishing Attempt with suspicious link",
+            action: "Message Deleted & User Banned",
+            messageObj: {
+              id: message.id,
+              content: message.content
+            }
+          }
+
+          _logModerationAction(actionObj);
+        })
+        .catch(error => console.log("Couldn't ban bot because of the following error: \n" + error));
+    }
+
+    if (message.member && !message.member.permissions.has("MentionEveryone") && (message.content.includes("@everyone") || message.content.includes("@here"))) {
+      if (botSpamCheck.includes(message.member.user.tag)) {
+
+        message.delete();
+        message.member.ban({
+            days: 7,
+            reason: "Spam Bot with mass pings, auto banned by bot!"
+          })
+          .then(console.log("Spam Bot wit mass pings banned! Username: " + message.member.user.tag))
+          .catch(error => console.info("Couldn't ban bot because of the following error: \n" + error));
+        botSpamCheck.splice(botSpamCheck.indexOf(message.member.user.tag), 1);
+
+        let actionObj = {
+          user: message.author.username,
+          channel: {
+            name: message.channel.name,
+            id: message.channel.id
+          },
+          offense: "Repeated unauthorized Everyone/Here Ping",
+          action: "Message Deleted & User Banned",
+          messageObj: {
+            id: message.id,
+            content: message.content
+          }
         }
-      }
 
-      _logModerationAction(actionObj);
-    } else {
-      message.delete();
-      message.reply("Hey there. You have tried to ping everyone in this server. While disabled and thus without effect, we still do not appreciate the attempt. Repeated attempts to mass ping will be met with a ban.\nIn the event of important notifications or alerts that we need to be aware of, please contact staff.").then(disclaimer => {
+        _logModerationAction(actionObj);
+      } else {
+        message.delete();
+        message.reply("Hey there. You have tried to ping everyone in this server. While disabled and thus without effect, we still do not appreciate the attempt. Repeated attempts to mass ping will be met with a ban.\nIn the event of important notifications or alerts that we need to be aware of, please contact staff.").then(disclaimer => {
+          setTimeout(() => {
+            disclaimer.delete();
+          }, 15000);
+        })
+        let userTag = message.member.user.tag;
+        botSpamCheck.push(userTag);
+
+        let actionObj = {
+          user: message.author.username,
+          channel: {
+            name: message.channel.name,
+            id: message.channel.id
+          },
+          offense: "Unauthorized Everyone/Here Ping",
+          action: "Message Deleted & Warning issued",
+          messageObj: {
+            id: message.id,
+            content: message.content
+          }
+        }
+
+        _logModerationAction(actionObj);
+
         setTimeout(() => {
-          disclaimer.delete();
-        }, 15000);
-      })
-      let userTag = message.member.user.tag;
-      botSpamCheck.push(userTag);
-
-      let actionObj = {
-        user: message.author.username,
-        channel: {
-          name: message.channel.name,
-          id: message.channel.id
-        },
-        offense: "Unauthorized Everyone/Here Ping",
-        action: "Message Deleted & Warning issued",
-        messageObj: {
-          id: message.id,
-          content: message.content
-        }
+          if (botSpamCheck.includes(userTag))
+            botSpamCheck.splice(botSpamCheck.indexOf(userTag), 1);
+        }, 45000);
       }
-
-      _logModerationAction(actionObj);
-
-      setTimeout(() => {
-        if (botSpamCheck.includes(userTag))
-          botSpamCheck.splice(botSpamCheck.indexOf(userTag), 1);
-      }, 45000);
-
     }
   }
-
-
-  if (message.channel.id == roleHandlingChannel)
+  
+  if (message.channel.id == roleHandlingChannel && roleHandlingChannel.length > 0)
     roleManagement(message);
-  else if (message.channel.id == glitchesChannel)
+  else if (message.channel.id == glitchesChannel && glitchesChannel.length > 0)
     stickyGlitchHandling(message);
   else if (message.channel.id == streamNotificationChannel)
     streamNotificationManagement(message);
@@ -501,6 +502,10 @@ bot.on('messageCreate', message => {
 
 //Discord Handler
 function _logModerationAction(actionObj) {
+  
+  if (loggingChannel.length == 0)
+    return;
+
   let channel = bot.guilds.cache.get(activeGuild).channels.cache.get(loggingChannel);
 
   var postDate = JSON.parse(JSON.stringify(new Date()));
